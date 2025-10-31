@@ -17,11 +17,16 @@ const EmployeeSkill = sequelize.define('EmployeeSkill', {
 }, {
     tableName: 'employee_skills',
     timestamps: true,
-    paranoid: true
+    paranoid: true,
+    indexes: [
+        { fields: ['employee_id'] },
+        { fields: ['skill_id'] },
+        { unique: true, fields: ['employee_id', 'skill_id'] } // evita duplicidad entre empleado y habilidad
+    ]
 });
 
-// Relaciones
-EmployeeSkill.belongsTo(Employee, { foreignKey: 'employee_id' });
-EmployeeSkill.belongsTo(Skill, { foreignKey: 'skill_id' });
+// Relaciones sin constraints duplicados
+EmployeeSkill.belongsTo(Employee, { foreignKey: 'employee_id', constraints: false });
+EmployeeSkill.belongsTo(Skill, { foreignKey: 'skill_id', constraints: false });
 
 module.exports = EmployeeSkill;

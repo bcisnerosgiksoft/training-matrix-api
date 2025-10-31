@@ -2,6 +2,8 @@
 const Skill = require('../models/mysql/skill.model');
 const Operation = require('../models/mysql/operation.model');
 const Area = require('../models/mysql/area.model');
+const Employee = require('../models/mysql/employee.model');
+const EmployeeSkill = require('../models/mysql/employeeSkill.model');
 const { createLog } = require('../utils/log.helper');
 const { notifyUser } = require('../utils/notify.helper');
 const { Op, Sequelize } = require('sequelize');
@@ -39,8 +41,48 @@ const create = async (req, res) => {
     try {
         const { name, operation_id } = req.body;
 
+        // 1. Crear la habilidad
         const newSkill = await Skill.create({ name, operation_id });
 
+        // 2. Buscar la operación con su área
+        const operation = await Operation.findByPk(operation_id, {
+            include: [{ model: Area }]
+        });
+
+        // 3. Obtener empleados del área
+        if (operation && operation.Area) {
+            const employees = await Employee.findAll({
+                where: { area_id: operation.Area.id }
+            });
+
+            if (employees.length > 0) {
+                // 4. Verificar cuáles ya tienen la habilidad
+                const existing = await EmployeeSkill.findAll({
+                    where: {
+                        skill_id: newSkill.id,
+                        employee_id: employees.map(e => e.id)
+                    }
+                });
+                const existingEmployeeIds = existing.map(es => es.employee_id);
+
+                // 5. Crear asignaciones nuevas en nivel 0
+                const skillsToAssign = employees
+                    .filter(e => !existingEmployeeIds.includes(e.id))
+                    .map(e => ({
+                        employee_id: e.id,
+                        skill_id: newSkill.id,
+                        level: 0,
+                        updated_by: req.user.id,
+                        updated_at: new Date()
+                    }));
+
+                if (skillsToAssign.length > 0) {
+                    await EmployeeSkill.bulkCreate(skillsToAssign);
+                }
+            }
+        }
+
+        // 🔔 Notificar y loguear
         await notifyUser({
             user_id: req.user.id,
             title: 'Nueva habilidad registrada',
@@ -56,20 +98,17 @@ const create = async (req, res) => {
             ip: req.ip
         });
 
-        // Recuperamos la habilidad recién creada con relaciones incluidas
+        // Devolver con relaciones
         const skillWithRelations = await Skill.findByPk(newSkill.id, {
             include: {
                 model: Operation,
                 attributes: ['id', 'name', 'is_critical'],
-                include: {
-                    model: require('../models/mysql/area.model'),
-                    attributes: ['id', 'name']
-                }
+                include: { model: Area, attributes: ['id', 'name'] }
             }
         });
 
         res.status(201).json({
-            message: 'Habilidad registrada',
+            message: 'Habilidad registrada y asignada a empleados del área',
             skill: skillWithRelations
         });
 
